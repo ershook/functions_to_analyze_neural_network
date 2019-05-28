@@ -1,3 +1,29 @@
+
+import numpy as np
+import h5py 
+import numpy as np
+import sklearn
+import h5py
+import sklearn.metrics
+import scipy.stats
+import os 
+import sys
+sys.path.append('/om/user/ershook/model_response_orig/')
+from generateCochleagrams import GenerateCochleagrams
+
+import pickle
+import tensorflow as tf
+
+import scipy.io.wavfile
+
+import matplotlib as plt 
+plt.rcParams['axes.color_cycle'] = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
+              '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
+              '#bcbd22', '#17becf']
+
+
+
+
 class NetworkAnalysisBase(object):
     
     #Note: from now on should name cochleagram folders stimulus_type_batch_number
@@ -7,12 +33,27 @@ class NetworkAnalysisBase(object):
     def __init__(self, model, stimuli_path, meta, stimulus_files = False, stimulus_name = False):
         #Need to add meta as an input
         
+        
         self.base_dir = '/om2/user/ershook/NetworkAnalysesClass/data/'
     
         self.stimuli_path = stimuli_path
-        self.model_name = model.__class__.__name__
+        
         self.model = model
         self.meta = meta
+        
+        #This is an annoying work around for interfacing with CNN.py
+        
+        if type(model)  == list:
+            self.model = model[0]
+            self.checkpoint = model[1]
+            self.graph, self.tensors,self.session = self.model.getGraph(int(self.checkpoint))
+            self.model_name = self.model.__class__.__name__
+        
+        else:
+            self.session = self.model.session
+            self.graph = self.model.graph
+            self.tensors = self.model.tensors
+            self.model_name = self.model.__class__.__name__
         
         if stimulus_files:
             # Cochleagrams have a unique format so just pass in a list of paths to the hdf5s
@@ -62,8 +103,11 @@ class NetworkAnalysisBase(object):
         number_of_units_per_layer = {}
         dummy_coch = np.zeros((1,256*256)) #Assumes shape of cochleagram is 256x256
         
-        for layer in model.layer_params.keys():
-            activations = self.model.session.run(model.tensors[layer], feed_dict={self.model.tensors['x']: dummy_coch, self.model.tensors['y_label']: [0]*1, self.model.tensors['keep_prob']:1})
+        for layer in self.model.layer_params.keys():
+            if 'keep_prob' in self.tensors:
+                activations = self.session.run(self.tensors[layer], feed_dict={self.tensors['x']: dummy_coch, self.tensors['y_label']: [0]*1, self.tensors['keep_prob']:1})
+            else:
+                activations = self.session.run(self.tensors[layer], feed_dict={self.tensors['x']: dummy_coch, self.tensors['y_label']: [0]*1})
             activations = np.squeeze(activations)
             number_of_units_per_layer[layer] = np.shape(activations)
             
@@ -117,15 +161,20 @@ class NetworkAnalysisBase(object):
                         print 'Getting activations for hdf5 file number '+ str(_) + ' out of '+ str(len(self.stimulus_files))
                         with h5py.File(path, 'r') as f_in:
                             for ind in range(len(f_in['data'])):
-                                with model.graph.as_default() as g:
+                                with self.graph.as_default() as g:
                             
                                     batch = f_in['data'][ind:ind+1,0:65536]
-                                    measures = self.model.session.run(self.model.tensors, feed_dict={self.model.tensors['x']: batch, self.model.tensors['y_label']: [0]*1, self.model.tensors['keep_prob']:1})
-                                    for layer in num_units_per_layer.keys():
+                                    if 'keep_prob' in self.tensors:
+                                            measures = self.session.run(self.tensors, feed_dict={self.tensors['x']: batch, self.tensors['y_label']: [0]*1, self.tensors['keep_prob']:1})
+                                    else:
+                                            measures = self.session.run(self.tensors, feed_dict={self.tensors['x']: batch, self.tensors['y_label']: [0]*1})
+                                    
+                                    for layer in self.number_of_units_per_layer.keys():
                                         dataset_dict[layer][current_index] =  np.array(np.squeeze(measures[layer]))
                                 current_index += 1
+                               
                                 if current_index %1000 ==0:
-                                    print 'current_index: ' + str(current_index)
+                                        print 'current_index: ' + str(current_index)
         else:
             print "Note: unit activations hdf5 for this model and set of cochleagrams already exists."
                                 
@@ -146,13 +195,18 @@ class NetworkAnalysisBase(object):
         if self.model_name == 'WordGenreNetwork_WORDBranch':
             #ie. the model was trained on the combined dataset not Jenelle's dataset
             word_key = np.load('/om/user/ershook/old_cnn_project_stuff/words.npy')
+            correct = []
+            for word in self.meta[:,1]:
+                correct.append(list(word_key).index(word)) 
         else: 
-            pass
-            #Need to add the path to key for Jenelle's dataset so when you are evaluating classifiers
-    
-        correct = []
-        for word in self.meta[:,1]:
-            correct.append(list(word_key).index(word)) 
+            # the path to key for Jenelle's dataset so when you are evaluating classifiers
+            label_dictionary = '/om/user/ershook/old_cnn_project_stuff/psychophysicsWordResults/dict_word_to_label.save'
+            dict_word_to_label = pickle.load( open( label_dictionary, "rb" ) )
+            
+            correct = []
+            for word in self.meta[:,1]:
+                correct.append(dict_word_to_label[word]-1) #-1 because 1 indexed not zero...
+            
         return np.array(correct)
     
     def getLogits(self, remove_null = False):
@@ -217,3 +271,5 @@ class NetworkAnalysisBase(object):
         plt.xlabel('SNR(dB)')
         plt.show()
 
+if __name__ == '__main__':
+    main()
