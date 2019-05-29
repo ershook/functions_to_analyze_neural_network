@@ -23,7 +23,6 @@ plt.rcParams['axes.color_cycle'] = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
 
 
 
-
 class NetworkAnalysisBase(object):
     
     #Note: from now on should name cochleagram folders stimulus_type_batch_number
@@ -398,8 +397,29 @@ class NetworkAnalysisBase(object):
             
             
 
-    def consolidateIndividualHDF5s(self):
-        pass
+    def consolidateLogitBatchHDF5s(self):
+        files = os.listdir(self.logits_dir)
+        
+        num_batch_files = len([f for f in files if 'batch_' in f])
+        if not hasattr(self, 'number_of_cochleagrams'):
+            self.number_of_cochleagrams = self.getNumberOfCochleagrams()
+            
+        if not hasattr(self, 'number_of_units_per_layer'):
+            self.number_of_units_per_layer = self.getNumberUnitsPerLayer()
+        
+        with h5py.File(self.logits_hdf5_path, 'x') as f_out:
+            
+            dim = (self.number_of_cochleagrams,) + self.number_of_units_per_layer['fc_top']
+            logits = f_out.create_dataset('fc_top', dim , dtype='float32')
+            
+            current_index = 0 
+            for batch_no in range(num_batch_files):
+                print batch_no
+                batch_path = os.path.join(self.logits_dir, self.class_name + '_logits_batch_' + str(batch_no) + '.hdf5')
+                with h5py.File(self.logits_hdf5_path, 'r') as f_in:
+                    logits[current_index: current_index+ len(f_in['fc_top'])] = np.array(f_in['fc_top'])
+                    current_index += len(f_in['fc_top'])
+                
                 
         
     def makeLinePlot(self, condition_order): 
@@ -422,6 +442,8 @@ class NetworkAnalysisBase(object):
         plt.ylabel('Proportion Correct')
         plt.xlabel('SNR(dB)')
         plt.show()
+
+
 
 
 
