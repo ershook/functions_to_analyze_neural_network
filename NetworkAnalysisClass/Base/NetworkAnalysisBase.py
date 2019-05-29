@@ -94,6 +94,9 @@ class NetworkAnalysisBase(object):
             self.unit_activations_dir = self.getUnitActivationsDir()
             self.unit_activations_hdf5_path = os.path.join(self.unit_activations_dir, self.class_name+'_unit_activations.hdf5')
 
+        self.logits_dir = self.getLogitsDir()
+        self.logits_hdf5_path = os.path.join(self.logits_dir, self.class_name+'_logits.hdf5')
+
 
      
         
@@ -111,6 +114,13 @@ class NetworkAnalysisBase(object):
         if not os.path.exists(d):
             os.makedirs(d)
         return d
+    
+    def getLogitsDir(self):
+        d = os.path.join(self.class_dir, 'logits')
+        if not os.path.exists(d):
+            os.makedirs(d)
+        return d
+    
     
     def getNumberUnitsPerLayer(self):
         #Determine the number of units per layer (probably a better way but this is the only way I know how) 
@@ -192,15 +202,119 @@ class NetworkAnalysisBase(object):
                                         print 'current_index: ' + str(current_index)
         else:
             print "Note: unit activations hdf5 for this model and set of cochleagrams already exists."
+    
+    def _writeHDF5UnitActivations_batch(self, batch_no):
+        #Write an HDF5 of unit activations to all cochleagrams in stimulus_files
+        #But first checks that file doesn't already exist (since getting activations is computationally expensive)
+        batch_path = os.path.join(self.unit_activations_dir, self.class_name + '_unit_activations_batch_' + str(batch_no) + '.hdf5')
+        if not os.path.exists(batch_path):
+        
+            with h5py.File(batch_path, 'x') as f_out:
+                
+                 #Create dataset store pointer to dataset object in dictionary
+                dataset_dict = {}
+                for layer in self.number_of_units_per_layer.keys():
+                    dim = (self.number_of_cochleagrams,) + self.number_of_units_per_layer[layer]
+                    dataset_dict[layer] = f_out.create_dataset(layer, dim , dtype='float32')
+
+                current_index = 0
+                path = self.stimulus_files[batch_no]
+                with h5py.File(path, 'r') as f_in:
+                    for ind in range(len(f_in['data'])):
+                        with self.graph.as_default() as g:
+
+                            batch = f_in['data'][ind:ind+1,0:65536]
+                            if 'keep_prob' in self.tensors:
+                                    measures = self.session.run(self.tensors, feed_dict={self.tensors['x']: batch, self.tensors['y_label']: [0]*1, self.tensors['keep_prob']:1})
+                            else:
+                                    measures = self.session.run(self.tensors, feed_dict={self.tensors['x']: batch, self.tensors['y_label']: [0]*1})
+
+                            for layer in self.number_of_units_per_layer.keys():
+                                dataset_dict[layer][current_index] =  np.array(np.squeeze(measures[layer]))
+                        current_index += 1
+
+                        if current_index %100 ==0:
+                                print 'current_index: ' + str(current_index)
+        else:
+            print "Note: unit activations hdf5 for this model and set of cochleagrams already exists."
+
+               
+    def _writeHDF5Logits(self):
+        #Write an HDF5 of unit activations to all cochleagrams in stimulus_files
+        #But first checks that file doesn't already exist (since getting activations is computationally expensive)
+        
+        if not os.path.exists(self.logits_hdf5_path):
+        
+            with h5py.File(self.logits_hdf5_path, 'x') as f_out:
+                 
+                    dim = (self.number_of_cochleagrams,) + self.number_of_units_per_layer['fc_top']
+                    logits = f_out.create_dataset('fc_top', dim , dtype='float32')
+                
+                    current_index = 0
+
+                    for _, path in enumerate(self.stimulus_files):
+                        print 'Getting activations for hdf5 file number '+ str(_) + ' out of '+ str(len(self.stimulus_files))
+                        with h5py.File(path, 'r') as f_in:
+                            for ind in range(len(f_in['data'])):
+                                with self.graph.as_default() as g:
+                            
+                                    batch = f_in['data'][ind:ind+1,0:65536]
+                                    if 'keep_prob' in self.tensors:
+                                            measures = self.session.run(self.tensors['fc_top'], feed_dict={self.tensors['x']: batch, self.tensors['y_label']: [0]*1, self.tensors['keep_prob']:1})
+                                    else:
+                                            measures = self.session.run(self.tensors['fc_top'], feed_dict={self.tensors['x']: batch, self.tensors['y_label']: [0]*1})
+                                    
                                 
+                                    logits[current_index] =  np.array(np.squeeze(measures))
+                                current_index += 1
+                               
+                                if current_index %100 ==0:
+                                        print 'current_index: ' + str(current_index)
+        else:
+            print "Note: unit activations hdf5 for this model and set of cochleagrams already exists."
+              
+                
+    def _writeHDF5Logits_batch(self, batch_no):
+        #Write an HDF5 of unit activations to all cochleagrams in stimulus_files
+        #But first checks that file doesn't already exist (since getting activations is computationally expensive)
+        batch_path = os.path.join(self.logits_dir, self.class_name + '_logits_batch_' + str(batch_no) + '.hdf5')
+        if not os.path.exists(batch_path):
+        
+            with h5py.File(batch_path, 'x') as f_out:
+                 
+                path = self.stimulus_files[batch_no]
+                with h5py.File(path, 'r') as f_in:
+                    dim = (len(f_in['data']),) + self.number_of_units_per_layer['fc_top']
+                    logits = f_out.create_dataset('fc_top', dim , dtype='float32')
+                
+                    for ind in range(len(f_in['data'])):
+                        print ind
+                        with self.graph.as_default() as g:
+
+                            batch = f_in['data'][ind:ind+1,0:65536]
+                            if 'keep_prob' in self.tensors:
+                                measures = self.session.run(self.tensors['fc_top'], feed_dict={self.tensors['x']: batch, self.tensors['y_label']: [0]*1, self.tensors['keep_prob']:1})
+                            else:
+                                measures = self.session.run(self.tensors['fc_top'], feed_dict={self.tensors['x']: batch, self.tensors['y_label']: [0]*1})
+
+
+                            logits[ind] =  np.array(np.squeeze(measures))
+                            
+        else:
+            print "Note: unit activations hdf5 for this model and set of cochleagrams already exists."
+                               
     
     def getUnitActivations(self):
         self.number_of_units_per_layer = self.getNumberUnitsPerLayer()
-        print 'hello'
         self.number_of_cochleagrams = self.getNumberOfCochleagrams()
         self._writeHDF5UnitActivations()
         return self.unit_activations_hdf5_path
     
+    def getUnitActivations_batch(self, batch_no):
+        self.number_of_units_per_layer = self.getNumberUnitsPerLayer()
+        self.number_of_cochleagrams = self.getNumberOfCochleagrams()
+        self._writeHDF5UnitActivations_batch(batch_no)
+        
     
     def getNetworkPerformance(self, remove_null = False): 
         self.correct = self.getCorrect()
@@ -231,11 +345,21 @@ class NetworkAnalysisBase(object):
         return np.array(correct)
     
     def getLogits(self, remove_null = False):
-        if not os.path.exists(self.unit_activations_hdf5_path):
-            self.getUnitActivations()
         
-        with h5py.File(self.unit_activations_hdf5_path, 'r') as f_in:
-            activations = np.array(f_in['fc_top'])
+        if os.path.exists(self.unit_activations_hdf5_path):
+            with h5py.File(self.unit_activations_hdf5_path, 'r') as f_in:
+                activations = np.array(f_in['fc_top'])
+                
+                
+        elif not os.path.exists(self.logits_hdf5_path):
+            self.number_of_units_per_layer = self.getNumberUnitsPerLayer()
+            self.number_of_cochleagrams = self.getNumberOfCochleagrams()
+            self._writeHDF5Logits()
+            with h5py.File(self.logits_hdf5_path, 'r') as f_in:
+                activations = np.array(f_in['fc_top'])
+        else:
+            with h5py.File(self.logits_hdf5_path, 'r') as f_in:
+                activations = np.array(f_in['fc_top'])
         
         logits = []
         if remove_null: 
@@ -250,6 +374,13 @@ class NetworkAnalysisBase(object):
             logits = np.argmax(activations, axis = 1)
 
         return np.array(logits)
+    
+    def writeLogitsFile_batch(self, batch_no):
+        self.number_of_units_per_layer = self.getNumberUnitsPerLayer()
+        self.number_of_cochleagrams = self.getNumberOfCochleagrams()
+        self._writeHDF5Logits_batch(batch_no)
+          
+    
     
     def getPerformanceByCondition(self):
         perf_dict = {}
@@ -291,6 +422,8 @@ class NetworkAnalysisBase(object):
         plt.ylabel('Proportion Correct')
         plt.xlabel('SNR(dB)')
         plt.show()
+
+
 
 
 
