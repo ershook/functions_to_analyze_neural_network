@@ -34,26 +34,13 @@ class NetworkAnalysisBase(object):
         #Need to add meta as an input
         
         
-        self.base_dir = '/om2/user/ershook/NetworkAnalysesClass/data/'
+        self.base_dir = '/om4/group/mcdermott/user/ershook/NetworkAnalysesClass/data/'
     
         self.stimuli_path = stimuli_path
         
         self.model = model
         self.meta = meta
         
-        #This is an annoying work around for interfacing with CNN.py
-        
-        if type(model)  == list:
-            self.model = model[0]
-            self.checkpoint = model[1]
-            self.graph, self.tensors,self.session = self.model.getGraph(int(self.checkpoint))
-            self.model_name = self.model.__class__.__name__
-        
-        else:
-            self.session = self.model.session
-            self.graph = self.model.graph
-            self.tensors = self.model.tensors
-            self.model_name = self.model.__class__.__name__
         
         if stimulus_files:
             # Cochleagrams have a unique format so just pass in a list of paths to the hdf5s
@@ -74,16 +61,44 @@ class NetworkAnalysisBase(object):
                 self.stimulus_files = self.getStimulusFiles(stimuli_path)
                 self.stimulus_name = self.stimuli_path.split('/')[-2]
     
+      
         
-        self.class_name = self.model_name + '_' + self.stimulus_name
         
-        self.class_dir = self.getClassDir() #This is where all data associated with this model/cochleagrams will be saved
-        #If in future need to write somewhere other than /om2 set up a symbolic link 
+        #This is an annoying work around for interfacing with CNN.py
         
-        self.unit_activations_dir = self.getUnitActivationsDir()
-        self.unit_activations_hdf5_path = os.path.join(self.unit_activations_dir, self.class_name+'_unit_activations.hdf5')
-        self.number_of_units_per_layer = self.getNumberUnitsPerLayer()
-        self.number_of_cochleagrams = self.getNumberOfCochleagrams()
+        if type(model)  == list:
+            self.model = model[0]
+            self.model_name = self.model.__class__.__name__
+            self.class_name = self.model_name + '_' + self.stimulus_name
+            self.class_dir = self.getClassDir() #This is where all data associated with this model/cochleagrams will be saved
+            #If in future need to write somewhere other than /om2 set up a symbolic link 
+            
+            self.unit_activations_dir = self.getUnitActivationsDir()
+            self.unit_activations_hdf5_path = os.path.join(self.unit_activations_dir, self.class_name+'_unit_activations.hdf5')
+
+            if not os.path.exists(self.unit_activations_hdf5_path):
+                self.checkpoint = model[1]
+                self.graph, self.tensors,self.session = self.model.getGraph(int(self.checkpoint))
+
+        
+        else:
+            self.session = self.model.session
+            self.graph = self.model.graph
+            self.tensors = self.model.tensors
+            
+            self.model_name = self.model.__class__.__name__
+            self.class_name = self.model_name + '_' + self.stimulus_name
+            self.class_dir = self.getClassDir() #This is where all data associated with this model/cochleagrams will be saved
+            #If in future need to write somewhere other than /om2 set up a symbolic link 
+            
+            self.unit_activations_dir = self.getUnitActivationsDir()
+            self.unit_activations_hdf5_path = os.path.join(self.unit_activations_dir, self.class_name+'_unit_activations.hdf5')
+
+
+     
+        
+     
+    
 
     def getClassDir(self):
         d = os.path.join(self.base_dir, self.class_name)
@@ -173,23 +188,29 @@ class NetworkAnalysisBase(object):
                                         dataset_dict[layer][current_index] =  np.array(np.squeeze(measures[layer]))
                                 current_index += 1
                                
-                                if current_index %1000 ==0:
+                                if current_index %100 ==0:
                                         print 'current_index: ' + str(current_index)
         else:
             print "Note: unit activations hdf5 for this model and set of cochleagrams already exists."
                                 
     
     def getUnitActivations(self):
+        self.number_of_units_per_layer = self.getNumberUnitsPerLayer()
+        print 'hello'
+        self.number_of_cochleagrams = self.getNumberOfCochleagrams()
         self._writeHDF5UnitActivations()
         return self.unit_activations_hdf5_path
     
     
-    def getNetworkPerformance(self): 
+    def getNetworkPerformance(self, remove_null = False): 
         self.correct = self.getCorrect()
-        self.logits = self.getLogits()
+        self.logits = self.getLogits(remove_null = remove_null)
+        assert len(self.correct) == len(self.logits)
         self.is_correct = (self.correct == self.logits)
-        print 'overall performance is ' + str(np.sum(self.is_correct)/float(len(self.logits)) * 100) +'%'
+        self.overall_performance = np.sum(self.is_correct)/float(len(self.logits)) 
+        print 'overall performance is ' + str(self.overall_performance * 100) +'%'
         self.raw_data_by_cond, self.perf_dict = self.getPerformanceByCondition()
+        return self.overall_performance
     
     def getCorrect(self): 
         if self.model_name == 'WordGenreNetwork_WORDBranch':
@@ -211,7 +232,7 @@ class NetworkAnalysisBase(object):
     
     def getLogits(self, remove_null = False):
         if not os.path.exists(self.unit_activations_hdf5_path):
-            self._writeHDF5UnitActivations()
+            self.getUnitActivations()
         
         with h5py.File(self.unit_activations_hdf5_path, 'r') as f_in:
             activations = np.array(f_in['fc_top'])
@@ -270,6 +291,9 @@ class NetworkAnalysisBase(object):
         plt.ylabel('Proportion Correct')
         plt.xlabel('SNR(dB)')
         plt.show()
+
+
+
 
 if __name__ == '__main__':
     main()
