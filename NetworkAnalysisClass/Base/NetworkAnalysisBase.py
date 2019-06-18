@@ -27,7 +27,7 @@ class NetworkAnalysisBase(object):
     #Note: assumes only two models genre and word -- in future could extend to support arbitray architecture
     # ie. allow num_units_per_layer to be passed in (should be only necessary change)
     
-    def __init__(self, model, stimuli_path, meta, stimulus_files = False, stimulus_name = False):
+    def __init__(self, model, stimuli_path, meta, stimulus_files = False, stimulus_name = False, masking_exp = False):
         #Need to add meta as an input
         
     
@@ -37,7 +37,7 @@ class NetworkAnalysisBase(object):
         
         self.model = model
         self.meta = meta
-        
+        self.masking_exp = masking_exp
         
         if stimulus_files:
             # Cochleagrams have a unique format so just pass in a list of paths to the hdf5s
@@ -65,8 +65,11 @@ class NetworkAnalysisBase(object):
         
         if type(model)  == list:
             self.model = model[0]
-            self.model_name = self.model.__class__.__name__ #+ '_context_analysis' ##CHANGEMEBACK
-            self.class_name = self.model_name + '_' + self.stimulus_name #+'_context_analysis'##CHANGEMEBACK
+            self.model_name = self.model.__class__.__name__ 
+            self.class_name = self.model_name + '_' + self.stimulus_name 
+            if self.masking_exp:
+                self.model_name = self.model.__class__.__name__ + '_masking_exp' ##CHANGEMEBACK
+                self.class_name = self.model_name + '_' + self.stimulus_name +'_masking_exp'##CHANGEMEBACK
             self.class_dir = self.getClassDir() #This is where all data associated with this model/cochleagrams will be saved
             #If in future need to write somewhere other than /om2 set up a symbolic link 
             
@@ -82,9 +85,13 @@ class NetworkAnalysisBase(object):
             self.session = self.model.session
             self.graph = self.model.graph
             self.tensors = self.model.tensors
-            
-            self.model_name = self.model.__class__.__name__
-            self.class_name = self.model_name + '_' + self.stimulus_name
+            if self.masking_exp:
+                self.model_name = self.model.__class__.__name__+ '_masking_exp'###CHANGEMEBACK
+                self.class_name = self.model_name + '_' + self.stimulus_name+ '_masking_exp'###CHANGEMEBACK
+                
+            else:
+                self.model_name = self.model.__class__.__name__
+                self.class_name = self.model_name + '_' + self.stimulus_name
             self.class_dir = self.getClassDir()
             
             self.unit_activations_dir = self.getUnitActivationsDir()
@@ -253,9 +260,11 @@ class NetworkAnalysisBase(object):
                                 with self.graph.as_default() as g:
                             
                                     batch = f_in['data'][ind:ind+1,0:65536]
-                                    #coch = batch.reshape((256,256)) #CHANGEMEBACK
-                                    #coch[0:5,:] = np.zeros((5,256))#CHANGEMEBACK
-                                    #batch = coch.reshape((1,65536))#CHANGEMEBACK
+                                
+                                    if self.masking_exp:
+                                        coch = batch.reshape((256,256)) #CHANGEMEBACK
+                                        coch[0:5,:] = np.zeros((5,256))#CHANGEMEBACK
+                                        batch = coch.reshape((1,65536))#CHANGEMEBACK
                                 
                                 
                                     if 'keep_prob' in self.tensors:
