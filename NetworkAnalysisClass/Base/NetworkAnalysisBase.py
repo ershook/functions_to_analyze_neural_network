@@ -21,8 +21,6 @@ plt.rcParams['axes.color_cycle'] = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
               '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
               '#bcbd22', '#17becf']
 
-
-
 class NetworkAnalysisBase(object):
     
     #Note: from now on should name cochleagram folders stimulus_type_batch_number
@@ -32,8 +30,8 @@ class NetworkAnalysisBase(object):
     def __init__(self, model, stimuli_path, meta, stimulus_files = False, stimulus_name = False):
         #Need to add meta as an input
         
-        
-        self.base_dir = '/om4/group/mcdermott/user/ershook/NetworkAnalysesClass/data/'
+    
+        self.base_dir = '/om2/user/ershook/NetworkAnalysesClass/data/'
     
         self.stimuli_path = stimuli_path
         
@@ -67,8 +65,8 @@ class NetworkAnalysisBase(object):
         
         if type(model)  == list:
             self.model = model[0]
-            self.model_name = self.model.__class__.__name__
-            self.class_name = self.model_name + '_' + self.stimulus_name
+            self.model_name = self.model.__class__.__name__ #+ '_context_analysis' ##CHANGEMEBACK
+            self.class_name = self.model_name + '_' + self.stimulus_name #+'_context_analysis'##CHANGEMEBACK
             self.class_dir = self.getClassDir() #This is where all data associated with this model/cochleagrams will be saved
             #If in future need to write somewhere other than /om2 set up a symbolic link 
             
@@ -87,8 +85,7 @@ class NetworkAnalysisBase(object):
             
             self.model_name = self.model.__class__.__name__
             self.class_name = self.model_name + '_' + self.stimulus_name
-            self.class_dir = self.getClassDir() #This is where all data associated with this model/cochleagrams will be saved
-            #If in future need to write somewhere other than /om2 set up a symbolic link 
+            self.class_dir = self.getClassDir()
             
             self.unit_activations_dir = self.getUnitActivationsDir()
             self.unit_activations_hdf5_path = os.path.join(self.unit_activations_dir, self.class_name+'_unit_activations.hdf5')
@@ -98,9 +95,7 @@ class NetworkAnalysisBase(object):
 
 
      
-        
-     
-    
+
 
     def getClassDir(self):
         d = os.path.join(self.base_dir, self.class_name)
@@ -258,6 +253,11 @@ class NetworkAnalysisBase(object):
                                 with self.graph.as_default() as g:
                             
                                     batch = f_in['data'][ind:ind+1,0:65536]
+                                    #coch = batch.reshape((256,256)) #CHANGEMEBACK
+                                    #coch[0:5,:] = np.zeros((5,256))#CHANGEMEBACK
+                                    #batch = coch.reshape((1,65536))#CHANGEMEBACK
+                                
+                                
                                     if 'keep_prob' in self.tensors:
                                             measures = self.session.run(self.tensors['fc_top'], feed_dict={self.tensors['x']: batch, self.tensors['y_label']: [0]*1, self.tensors['keep_prob']:1})
                                     else:
@@ -308,6 +308,8 @@ class NetworkAnalysisBase(object):
         self.number_of_cochleagrams = self.getNumberOfCochleagrams()
         self._writeHDF5UnitActivations()
         return self.unit_activations_hdf5_path
+
+                
     
     def getUnitActivations_batch(self, batch_no):
         self.number_of_units_per_layer = self.getNumberUnitsPerLayer()
@@ -318,6 +320,13 @@ class NetworkAnalysisBase(object):
     def getNetworkPerformance(self, remove_null = False): 
         self.correct = self.getCorrect()
         self.logits = self.getLogits(remove_null = remove_null)
+        
+        
+        #if the size of the last cochleagram file contains zeros because less wavs than batch size
+        if len(self.logits) > len(self.correct):
+            if 1 == len(np.unique(self.logits[len(self.correct):])):
+                self.logits = self.logits[:len(self.correct)]
+        
         assert len(self.correct) == len(self.logits)
         self.is_correct = (self.correct == self.logits)
         self.overall_performance = np.sum(self.is_correct)/float(len(self.logits)) 
@@ -416,7 +425,7 @@ class NetworkAnalysisBase(object):
             for batch_no in range(num_batch_files):
                 print batch_no
                 batch_path = os.path.join(self.logits_dir, self.class_name + '_logits_batch_' + str(batch_no) + '.hdf5')
-                with h5py.File(self.logits_hdf5_path, 'r') as f_in:
+                with h5py.File(batch_path, 'r') as f_in:
                     logits[current_index: current_index+ len(f_in['fc_top'])] = np.array(f_in['fc_top'])
                     current_index += len(f_in['fc_top'])
                 
@@ -425,24 +434,56 @@ class NetworkAnalysisBase(object):
     def makeLinePlot(self, condition_order): 
         pass
     
-    def KellEtAlFigure2BNet7TF(self):
+    def KellEtAlFigure2BNet7TF(self, prefix = ''):
         # Code to generate this figure from /om/user/ershook/AlexCNNPaperProject/JupyterNotebooks/plotWordPsychophysics.ipynb
         backgrounds = ['Babble2Spkr', 'SpeakerShapedNoise', 'Music', 'AudScene', 'Babble8Spkr']
         snrs=['neg9db','neg6db','neg3db','0db', '3db']
         for bg in backgrounds:
             to_plot=[]
             for snr in snrs:
-                to_plot.append( self.perf_dict[bg+'_'+snr])
+                to_plot.append( self.perf_dict[prefix+'_'+bg+'_'+snr])
             plt.plot(to_plot, label=bg)
-        plt.scatter(4.5,self.perf_dict['dry'])
+        plt.scatter(4.5, self.perf_dict[prefix+'_'+'dry'])
 
         plt.xticks([0,1,2,3,4], snrs, rotation='horizontal')
         plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
-        plt.title("Word Psychophysics: Network")
+        if prefix !='':
+            plt.title(prefix+' ' +"Word Psychophysics: Network")
+        else:
+            plt.title("Word Psychophysics: Network")
         plt.ylabel('Proportion Correct')
         plt.xlabel('SNR(dB)')
         plt.show()
+        
+    def makeBarPlot(self, conds = False):
+        
+        if not hasattr(self, 'perf_dict'):
+            self.overall_performance = getNetworkPerformance(remove_null =True)
+        
+        n_groups = len(self.perf_dict.keys())
+        fig, ax = plt.subplots()
+        index = np.arange(n_groups)
 
+        to_plot = []
+        if conds == False: 
+            conds = sorted(self.perf_dict.keys())
+                           
+        for key in conds:
+            to_plot.append(self.perf_dict[key])
+
+        rects1 = plt.bar(index, to_plot,label='network', color = '#1f77b4' )
+
+        plt.ylim(0,1)
+        plt.xticks(index+.5, sorted(self.perf_dict.keys()))
+        plt.title(self.stimulus_name)
+
+    
+    def plotCochleagram(self, batch_no, clip):
+        with h5py.File(self.stimulus_files[batch_no],'r') as f_in:
+            plt.matshow(f_in['data'][clip,0:256*256].reshape(256,256), origin='lower')
+            plt.set_cmap('Blues')
+            plt.title(self.stimulus_name)
+            return f_in['data'][clip,0:256*256].reshape(256,256)
 
 
 
