@@ -1,3 +1,26 @@
+import numpy as np
+import h5py 
+import numpy as np
+import sklearn
+import h5py
+import sklearn.metrics
+import scipy.stats
+import os 
+import sys
+sys.path.append('/om/user/ershook/model_response_orig/')
+from generateCochleagrams import GenerateCochleagrams
+
+import pickle
+import tensorflow as tf
+
+import scipy.io.wavfile
+
+import matplotlib as plt 
+plt.rcParams['axes.color_cycle'] = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
+              '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
+              '#bcbd22', '#17becf']
+
+
 class NetworkAnalysisBase(object):
     
     
