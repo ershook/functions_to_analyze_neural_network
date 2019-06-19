@@ -1,34 +1,8 @@
-
-import numpy as np
-import h5py 
-import numpy as np
-import sklearn
-import h5py
-import sklearn.metrics
-import scipy.stats
-import os 
-import sys
-sys.path.append('/om/user/ershook/model_response_orig/')
-from generateCochleagrams import GenerateCochleagrams
-
-import pickle
-import tensorflow as tf
-
-import scipy.io.wavfile
-
-import matplotlib as plt 
-plt.rcParams['axes.color_cycle'] = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
-              '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
-              '#bcbd22', '#17becf']
-
 class NetworkAnalysisBase(object):
     
-    #Note: from now on should name cochleagram folders stimulus_type_batch_number
-    #Note: assumes only two models genre and word -- in future could extend to support arbitray architecture
-    # ie. allow num_units_per_layer to be passed in (should be only necessary change)
     
-    def __init__(self, model, stimuli_path, meta, stimulus_files = False, stimulus_name = False, masking_exp = False):
-        #Need to add meta as an input
+    def __init__(self, model, stimuli_path, meta, stimulus_files = False, stimulus_name = False, masking_exp = False, coch_size= (256,256), keyword = 'data'):
+       
         
     
         self.base_dir = '/om2/user/ershook/NetworkAnalysesClass/data/'
@@ -37,7 +11,10 @@ class NetworkAnalysisBase(object):
         
         self.model = model
         self.meta = meta
-        self.masking_exp = masking_exp
+        self.masking_exp = masking_exp #ie. want to mask out bottom 5 subbands of cochleagram
+        self.coch_size = coch_size #size of cgram (frequency, time)
+        self.coch_size_flattened = self.coch_size[0] * self.coch_size[1]
+        self.keyword = keyword #What the cgram dataset is named in the hdf5 ie. 'data' or in the case of spectemp 'spectemp-mags' because inconsistency is the spice of life
         
         if stimulus_files:
             # Cochleagrams have a unique format so just pass in a list of paths to the hdf5s
@@ -127,7 +104,7 @@ class NetworkAnalysisBase(object):
         #Determine the number of units per layer (probably a better way but this is the only way I know how) 
         
         number_of_units_per_layer = {}
-        dummy_coch = np.zeros((1,256*256)) #Assumes shape of cochleagram is 256x256
+        dummy_coch = np.zeros((1, self.coch_size[0]*self.coch_size[1])) #Assumes shape of cochleagram is 256x256
         
         for layer in self.model.layer_params.keys():
             if 'keep_prob' in self.tensors:
@@ -145,7 +122,7 @@ class NetworkAnalysisBase(object):
         num_cochs = 0 
         for hdf5_file in self.stimulus_files:
             with h5py.File(hdf5_file,'r') as f_in:
-                num_cochs += len(f_in['data'])
+                num_cochs += len(f_in[self.keyword])
         return num_cochs
 
 
@@ -186,10 +163,10 @@ class NetworkAnalysisBase(object):
                     for _, path in enumerate(self.stimulus_files):
                         print 'Getting activations for hdf5 file number '+ str(_) + ' out of '+ str(len(self.stimulus_files))
                         with h5py.File(path, 'r') as f_in:
-                            for ind in range(len(f_in['data'])):
+                            for ind in range(len(f_in[self.keyword])):
                                 with self.graph.as_default() as g:
                             
-                                    batch = f_in['data'][ind:ind+1,0:65536]
+                                    batch = f_in[self.keyword][ind:ind+1,0:self.coch_size_flattened]
                                     if 'keep_prob' in self.tensors:
                                             measures = self.session.run(self.tensors, feed_dict={self.tensors['x']: batch, self.tensors['y_label']: [0]*1, self.tensors['keep_prob']:1})
                                     else:
@@ -221,10 +198,10 @@ class NetworkAnalysisBase(object):
                 current_index = 0
                 path = self.stimulus_files[batch_no]
                 with h5py.File(path, 'r') as f_in:
-                    for ind in range(len(f_in['data'])):
+                    for ind in range(len(f_in[self.keyword])):
                         with self.graph.as_default() as g:
 
-                            batch = f_in['data'][ind:ind+1,0:65536]
+                            batch = f_in[self.keyword][ind:ind+1,0:self.coch_size_flattened]
                             if 'keep_prob' in self.tensors:
                                     measures = self.session.run(self.tensors, feed_dict={self.tensors['x']: batch, self.tensors['y_label']: [0]*1, self.tensors['keep_prob']:1})
                             else:
@@ -256,15 +233,15 @@ class NetworkAnalysisBase(object):
                     for _, path in enumerate(self.stimulus_files):
                         print 'Getting activations for hdf5 file number '+ str(_) + ' out of '+ str(len(self.stimulus_files))
                         with h5py.File(path, 'r') as f_in:
-                            for ind in range(len(f_in['data'])):
+                            for ind in range(len(f_in[self.keyword])):
                                 with self.graph.as_default() as g:
                             
-                                    batch = f_in['data'][ind:ind+1,0:65536]
+                                    batch = f_in[self.keyword][ind:ind+1,0:self.coch_size_flattened]
                                 
                                     if self.masking_exp:
-                                        coch = batch.reshape((256,256)) #CHANGEMEBACK
+                                        coch = batch.reshape((self.coch_size)) #CHANGEMEBACK
                                         coch[0:5,:] = np.zeros((5,256))#CHANGEMEBACK
-                                        batch = coch.reshape((1,65536))#CHANGEMEBACK
+                                        batch = coch.reshape((1,self.coch_size_flattened))#CHANGEMEBACK
                                 
                                 
                                     if 'keep_prob' in self.tensors:
@@ -292,14 +269,14 @@ class NetworkAnalysisBase(object):
                  
                 path = self.stimulus_files[batch_no]
                 with h5py.File(path, 'r') as f_in:
-                    dim = (len(f_in['data']),) + self.number_of_units_per_layer['fc_top']
+                    dim = (len(f_in[self.keyword]),) + self.number_of_units_per_layer['fc_top']
                     logits = f_out.create_dataset('fc_top', dim , dtype='float32')
                 
-                    for ind in range(len(f_in['data'])):
+                    for ind in range(len(f_in[self.keyword])):
                         print ind
                         with self.graph.as_default() as g:
 
-                            batch = f_in['data'][ind:ind+1,0:65536]
+                            batch = f_in[self.keyword][ind:ind+1,0:self.coch_size_flattened]
                             if 'keep_prob' in self.tensors:
                                 measures = self.session.run(self.tensors['fc_top'], feed_dict={self.tensors['x']: batch, self.tensors['y_label']: [0]*1, self.tensors['keep_prob']:1})
                             else:
@@ -489,16 +466,12 @@ class NetworkAnalysisBase(object):
     
     def plotCochleagram(self, batch_no, clip):
         with h5py.File(self.stimulus_files[batch_no],'r') as f_in:
-            plt.matshow(f_in['data'][clip,0:256*256].reshape(256,256), origin='lower')
+            plt.matshow(f_in[self.keyword][clip,0:self.coch_size_flattened].reshape(self.coch_size), origin='lower')
             plt.set_cmap('Blues')
             plt.title(self.stimulus_name)
-            return f_in['data'][clip,0:256*256].reshape(256,256)
+            return f_in[self.keyword][clip,0:self.coch_size_flattened].reshape(self.coch_size)
 
 
 
 
 
-
-
-if __name__ == '__main__':
-    main()
